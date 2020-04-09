@@ -8,7 +8,8 @@ def download_page(url, para = None):
         response = requests.get(url, params=para, headers=headers)
     else:
         response = requests.get(url, headers=headers)
-    response.encoding = response.apparent_encoding
+    # response.encoding = response.apparent_encoding
+    response.encoding = "utf8"
     if response.status_code == 200:
         return response.text
     else:
