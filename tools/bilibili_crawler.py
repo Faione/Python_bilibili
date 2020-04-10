@@ -4,6 +4,8 @@ import time
 import decoder
 import html_download
 import mysql_connect
+import threading
+import emoji
 from bs4 import BeautifulSoup
 
 
@@ -24,6 +26,7 @@ class bilibili_reptile(object):
         self.err_tag = []
         self.stat_dict = {}
         self.activity_dict = {}
+        self.comments = []
         self.decoder = decoder.Decoder()
         self.sum_table_3 = 0
         self.sum_table_4 = 0
@@ -96,6 +99,7 @@ class bilibili_reptile(object):
         return info_div.text
 
     def get_comments(self):
+        # comments_limit = 10
         html = html_download.download_page(self.url_json_comments.format(1, self.av))
         if self.data_err(html):
             return
@@ -112,20 +116,41 @@ class bilibili_reptile(object):
         total_page = data_json['data']['page']['count'] // data_json['data']['page']['size'] + 1
 
         comments_message = []
+        # comments_html = html_download.download_page(self.url_json_comments.format(1, self.av))
+        # data_json = json.loads(comments_html)
+        #
+        # for i in data_json['data']['replies']:
+        #     # 主评
+        #     if i is not None:
+        #         comments_message.append(i['content']['message'])
+        #         # 追评
+        #         if i['replies'] is not None:
+        #             for j in i['replies']:
+        #                 comments_message.append(j['content']['message'])
+
+        # comments_sum = 0
         for page in range(1, total_page + 1):
+            # if comments_sum > comments_limit:
+            #     break
             comments_html = html_download.download_page(self.url_json_comments.format(page, self.av))
             data_json = json.loads(comments_html)
+
             if data_json['data']['replies'] is None:
                 break
+
             for i in data_json['data']['replies']:
+                # if comments_sum > comments_limit:
+                #     break
                 # 主评
                 if i is not None:
                     comments_message.append(i['content']['message'])
+                    # comments_sum += 1
                     # 追评
                     if i['replies'] is not None:
                         for j in i['replies']:
                             comments_message.append(j['content']['message'])
-        return comments_message
+                            # comments_sum += 1
+        self.comments = comments_message
 
     def set_activity_dict(self, path):
         with open(path, 'r', encoding='utf-8') as file:
@@ -161,7 +186,6 @@ class bilibili_reptile(object):
                     self.tag = i['tag_name']
                 else:
                     self.tag = "No Tag"
-            return self.tag
 
     def to_table(self):
         self.err_tag = []
@@ -170,25 +194,36 @@ class bilibili_reptile(object):
         if info is None:
             return
 
-        self.get_stat()
-        self.get_activity_tag()
-        comments = self.get_comments()
+        t1 = threading.Thread(target=self.get_stat(), args=("t1",))
+        t2 = threading.Thread(target=self.get_activity_tag(), args=("t1",))
+        t3 = threading.Thread(target=self.get_comments(), args=("t1",))
+        t1.start()
+        t2.start()
+        t3.start()
+        t1.join()
+        t2.join()
+        t3.join()
+        # self.get_stat()
+        # self.get_activity_tag()
+        # comments = self.get_comments()
 
         if len(self.err_tag) == 0:
-            for i in comments:
+            for i in self.comments:
                 try:
+                    i = emoji.demojize(i)
                     mysql_connect.insert_to_b3_qgfx(self.stat_dict['date'], self.bv, self.stat_dict['title'], info, i)
+                    self.sum_table_3 += 1
                 except Exception as e:
                     print(e)
-                self.sum_table_3 += 1
+
             if self.tag != "No Tag":
                 try:
                     mysql_connect.insert_to_hd_cyfx(self.tag, self.stat_dict['owner_id'], self.stat_dict['coin'],
                                                     self.stat_dict['like'], self.stat_dict['favorite'],
                                                     self.stat_dict['view'])
+                    self.sum_table_4 += 1
                 except Exception as e:
                     print(e)
-                self.sum_table_4 += 1
             return "SUCCESSFUL!"
         else:
             return self.err_tag
